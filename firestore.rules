@@ -1,0 +1,76 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    function hasProfile() {
+      return signedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+    // Admin and coaches
+    function isStaff() { return hasProfile() && userDoc().role in ['admin', 'coach']; }
+    function isAdmin() { return hasProfile() && userDoc().role == 'admin'; }
+    function isStudent() { return hasProfile() && userDoc().role == 'student'; }
+    function myStudentId() { return userDoc().studentId; }
+    function myBatchId() {
+      return get(/databases/$(database)/documents/students/$(myStudentId())).data.batchId;
+    }
+    function setupDone() {
+      return exists(/databases/$(database)/documents/meta/setup);
+    }
+
+    // Logins. The very first admin may create themselves; after that only admins add people.
+    match /users/{uid} {
+      allow read: if isStaff() || (signedIn() && request.auth.uid == uid);
+      allow create: if (signedIn() && request.auth.uid == uid &&
+                        request.resource.data.role == 'admin' && !setupDone())
+                    || isAdmin();
+      allow update, delete: if isAdmin();
+    }
+    match /meta/{doc} {
+      allow read: if signedIn();
+      allow create: if signedIn() && doc == 'setup' && !setupDone();
+    }
+
+    // Students: staff see everyone, a student sees only their own record.
+    match /students/{id} {
+      allow read: if isStaff() || (isStudent() && id == myStudentId());
+      allow write: if isStaff();
+    }
+    match /batches/{id} {
+      allow read: if isStaff() || isStudent();
+      allow write: if isAdmin();
+    }
+    // Attendance sheets: staff mark them; a student can read their own batch's sheets.
+    match /attendance/{id} {
+      allow read: if isStaff() || (isStudent() && resource.data.batchId == myBatchId());
+      allow write: if isStaff();
+    }
+
+    // Cricket scoring is open to everyone with a login (admin, coaches, students).
+    match /matches/{id} {
+      allow read, create, update: if hasProfile();
+      allow delete: if isStaff();
+      match /balls/{ballId} { allow read, write: if hasProfile(); }
+    }
+    // Player career stats read every match's balls at once.
+    match /{path=**}/balls/{ballId} { allow read: if hasProfile(); }
+
+    // Money: admin sees everything, a student sees only their own payments and purchases.
+    match /payments/{id} {
+      allow read: if isAdmin() || (isStudent() && resource.data.studentId == myStudentId());
+      allow write: if isAdmin();
+    }
+    match /sales/{id} {
+      allow read: if isAdmin() || (isStudent() && resource.data.studentId == myStudentId());
+      allow write: if isAdmin();
+    }
+    match /items/{id} {
+      allow read: if isAdmin() || isStudent();
+      allow write: if isAdmin();
+    }
+  }
+}

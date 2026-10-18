@@ -1,0 +1,16 @@
+{
+  "firestore": {
+    "rules": "firestore.rules"
+  },
+  "hosting": {
+    "public": "build/web",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "rewrites": [{ "source": "**", "destination": "/index.html" }],
+    "headers": [
+      {
+        "source": "/@(flutter_service_worker.js|flutter_bootstrap.js|index.html|version.json|manifest.json)",
+        "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }]
+      }
+    ]
+  }
+}
